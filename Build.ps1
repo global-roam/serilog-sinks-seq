@@ -1,66 +1,33 @@
-param(
-    [String] $majorMinor = "0.0",  # 2.0
-    [String] $patch = "0",         # $env:APPVEYOR_BUILD_VERSION
-    [String] $customLogger = "",   # C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll
-    [Switch] $notouch
-)
+Push-Location $PSScriptRoot
 
-function Set-AssemblyVersions($informational, $assembly)
-{
-    (Get-Content assets/CommonAssemblyInfo.cs) |
-        ForEach-Object { $_ -replace """1.0.0.0""", """$assembly""" } |
-        ForEach-Object { $_ -replace """1.0.0""", """$informational""" } |
-        ForEach-Object { $_ -replace """1.1.1.1""", """$($informational).0""" } |
-        Set-Content assets/CommonAssemblyInfo.cs
+if(Test-Path .\artifacts) { Remove-Item .\artifacts -Force -Recurse }
+
+& dotnet restore --no-cache
+
+$branch = @{ $true = $env:APPVEYOR_REPO_BRANCH; $false = $(git symbolic-ref --short -q HEAD) }[$env:APPVEYOR_REPO_BRANCH -ne $NULL];
+$revision = @{ $true = "{0:00000}" -f [convert]::ToInt32("0" + $env:APPVEYOR_BUILD_NUMBER, 10); $false = "local" }[$env:APPVEYOR_BUILD_NUMBER -ne $NULL];
+$suffix = @{ $true = ""; $false = "$branch-$revision"}[$branch -eq "master" -and $revision -ne "local"]
+
+foreach ($src in ls src/Serilog.*) {
+    Push-Location $src
+
+	if ($suffix) {
+		& dotnet pack -c Release -o ..\..\.\artifacts --version-suffix=$suffix --include-source
+	} else {
+	    & dotnet pack -c Release -o ..\..\.\artifacts --include-source
+	}
+    if($LASTEXITCODE -ne 0) { exit 1 }    
+
+    Pop-Location
 }
 
-function Install-NuGetPackages($solution)
-{
-    nuget restore "$solution"
+foreach ($test in ls test/Serilog.*.Tests) {
+    Push-Location $test
+
+    & dotnet test -c Release
+    if($LASTEXITCODE -ne 0) { exit 2 }
+
+    Pop-Location
 }
 
-function Invoke-MSBuild($solution, $customLogger)
-{
-    if ($customLogger)
-    {
-        msbuild "$solution" /verbosity:minimal /p:Configuration=Release /logger:"$customLogger"
-    }
-    else
-    {
-        msbuild "$solution" /verbosity:minimal /p:Configuration=Release
-    }
-}
-
-function Invoke-NuGetPackSpec($nuspec, $version)
-{
-    nuget pack $nuspec -Version $version
-}
-
-function Invoke-Build($majorMinor, $patch, $customLogger, $notouch)
-{
-    $project = "serilog-sinks-seq"
-
-    $solution = "$project.sln"
-    $solution4 = "$project-net40.sln"
-    $package="$majorMinor.$patch"
-
-    Write-Output "Building $project $package"
-
-    if (-not $notouch)
-    {
-        $assembly = "$majorMinor.0.0"
-
-        Write-Output "Assembly version will be set to $assembly"
-        Set-AssemblyVersions $package $assembly
-    }
-
-    Install-NuGetPackages $solution
-    
-    Invoke-MSBuild $solution4 $customLogger
-    Invoke-MSBuild $solution $customLogger
-
-    Invoke-NuGetPackSpec "src/Serilog.Sinks.Seq/Serilog.Sinks.Seq.nuspec" $package
-}
-
-$ErrorActionPreference = "Stop"
-Invoke-Build $majorMinor $patch $customLogger $notouch
+Pop-Location
