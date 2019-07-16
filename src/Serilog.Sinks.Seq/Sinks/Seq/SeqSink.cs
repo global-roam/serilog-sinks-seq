@@ -43,7 +43,7 @@ namespace Serilog.Sinks.Seq
         readonly bool _useCompactFormat;
 
         DateTime _nextRequiredLevelCheckUtc = DateTime.UtcNow.Add(RequiredLevelCheckInterval);
-        ControlledLevelSwitch _controlledSwitch;
+        readonly ControlledLevelSwitch _controlledSwitch;
 
         public SeqSink(
             string serverUrl,
@@ -76,12 +76,12 @@ namespace Serilog.Sinks.Seq
 
         // The sink must emit at least one event on startup, and the server be
         // configured to set a specific level, before background level checks will be performed.
-        protected override void OnEmptyBatch()
+        protected override async Task OnEmptyBatchAsync()
         {
             if (_controlledSwitch.IsActive &&
                 _nextRequiredLevelCheckUtc < DateTime.UtcNow)
             {
-                EmitBatch(Enumerable.Empty<LogEvent>());
+                await EmitBatchAsync(Enumerable.Empty<LogEvent>());
             }
         }
 

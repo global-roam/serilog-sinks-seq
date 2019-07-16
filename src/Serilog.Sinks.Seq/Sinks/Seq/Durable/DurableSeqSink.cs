@@ -17,16 +17,15 @@
 using System;
 using Serilog.Core;
 using Serilog.Events;
-using Serilog.Sinks.RollingFile;
 using System.Net.Http;
 using System.Text;
 
-namespace Serilog.Sinks.Seq
+namespace Serilog.Sinks.Seq.Durable
 {
     class DurableSeqSink : ILogEventSink, IDisposable
     {
         readonly HttpLogShipper _shipper;
-        readonly RollingFileSink _sink;
+        readonly Logger _sink;
 
         public DurableSeqSink(
             string serverUrl,
@@ -34,7 +33,7 @@ namespace Serilog.Sinks.Seq
             string apiKey,
             int batchPostingLimit,
             TimeSpan period,
-            long? bufferFileSizeLimitBytes,
+            long? bufferSizeLimitBytes,
             long? eventBodyLimitBytes,
             LoggingLevelSwitch levelControlSwitch,
             HttpMessageHandler messageHandler,
@@ -43,23 +42,30 @@ namespace Serilog.Sinks.Seq
             if (serverUrl == null) throw new ArgumentNullException(nameof(serverUrl));
             if (bufferBaseFilename == null) throw new ArgumentNullException(nameof(bufferBaseFilename));
 
+
             _shipper = new HttpLogShipper(
                 serverUrl, 
                 bufferBaseFilename, 
                 apiKey, 
                 batchPostingLimit, 
                 period, 
-                eventBodyLimitBytes, 
+                eventBodyLimitBytes,
                 levelControlSwitch,
                 messageHandler,
-                retainedInvalidPayloadsLimitBytes);
+                retainedInvalidPayloadsLimitBytes,
+                bufferSizeLimitBytes);
 
-            _sink = new RollingFileSink(
-                bufferBaseFilename + "-{Date}.json",
-                new RawJsonFormatter(),
-                bufferFileSizeLimitBytes,
-                null,
-                encoding: Encoding.UTF8);
+            const long individualFileSizeLimitBytes = 100L * 1024 * 1024;
+            _sink = new LoggerConfiguration()
+                .MinimumLevel.Verbose()
+                .WriteTo.File(new RawJsonFormatter(),
+                        bufferBaseFilename + "-.json",
+                        rollingInterval: RollingInterval.Day,
+                        fileSizeLimitBytes: individualFileSizeLimitBytes,
+                        rollOnFileSizeLimit: true,
+                        retainedFileCountLimit: null,
+                        encoding: Encoding.UTF8)
+                .CreateLogger();
         }
 
         public void Dispose()
@@ -74,7 +80,7 @@ namespace Serilog.Sinks.Seq
             // are worth the ambiguity.
             if (_shipper.IsIncluded(logEvent))
             {
-                _sink.Emit(logEvent);
+                _sink.Write(logEvent);
             }
         }
     }

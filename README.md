@@ -1,8 +1,8 @@
 # Serilog.Sinks.Seq [![Build status](https://ci.appveyor.com/api/projects/status/t7qdv68pej6inukl/branch/master?svg=true)](https://ci.appveyor.com/project/serilog/serilog-sinks-seq/branch/master) [![NuGet](https://img.shields.io/nuget/v/Serilog.Sinks.Seq.svg)](https://nuget.org/packages/serilog.sinks.seq) [![Join the chat at https://gitter.im/serilog/serilog](https://img.shields.io/gitter/room/serilog/serilog.svg)](https://gitter.im/serilog/serilog)
 
-A Serilog sink that writes events to the [Seq](https://getseq.net) structured log server. Supports .NET 4.5+, .NET Core, and platforms compatible with the [.NET Platform Standard](https://github.com/dotnet/corefx/blob/master/Documentation/architecture/net-platform-standard.md) 1.1 including Windows 8 & UWP, Windows Phone and Xamarin.
+A Serilog sink that writes events to the [Seq](https://datalust.co/seq) structured log server. Supports .NET 4.5+, .NET Core, and platforms compatible with the [.NET Platform Standard](https://github.com/dotnet/corefx/blob/master/Documentation/architecture/net-platform-standard.md) 1.1 including Windows 8 & UWP, Windows Phone and Xamarin.
 
-[![Package Logo](http://serilog.net/images/serilog-sink-seq-nuget.png)](http://nuget.org/packages/serilog.sinks.seq)
+[<img alt="Package Logo" src="https://datalust.co/images/seq-nuget.png" width="128px">](https://nuget.org/packages/serilog.sinks.seq)
 
 ### Getting started
 
@@ -28,17 +28,17 @@ Log.Error("Failed to log on user {ContactId}", contactId);
 
 Then query log event properties like `ContactId` from the browser:
 
-![Query in Seq](https://nblumhardt.github.io/images/seq-sink-screenshot.png)
+![Query in Seq](https://raw.githubusercontent.com/serilog/serilog-sinks-seq/dev/assets/search-by-property.png)
 
-When the application shuts down, [ensure any buffered events are propertly flushed to Seq](http://blog.merbla.com/2016/07/06/serilog-log-closeandflush/) by disposing the logger or calling `Log.CloseAndFlush()`:
+When the application shuts down, [ensure any buffered events are propertly flushed to Seq](https://merbla.com/2016/07/06/serilog-log-closeandflush/) by disposing the logger or calling `Log.CloseAndFlush()`:
 
 ```csharp
 Log.CloseAndFlush();
 ```
 
-The sink can take advantage of Seq's [API keys](http://docs.getseq.net/docs/api-keys) to authenticate clients and dynamically attach properties to events at the server-side. To use an API key, specify it in the `apiKey` parameter of `WriteTo.Seq()`.
+The sink can take advantage of Seq's [API keys](https://docs.datalust.co/docs/api-keys) to authenticate clients and dynamically attach properties to events at the server-side. To use an API key, specify it in the `apiKey` parameter of `WriteTo.Seq()`.
 
-### Configuring with XML
+### XML `<appSettings>` configuration
 
 To adjust the Seq server URL at deployment time, it's often convenient to configure it using XML `<appSettings>`, in the `App.config` or `Web.config` file.
 
@@ -64,6 +64,41 @@ The settings typically included are:
 
 Serilog's XML configuration has several other capabilities that are described on the [Serilog wiki](https://github.com/serilog/serilog/wiki/AppSettings).
 
+### JSON `appsettings.json` configuration
+
+To use the Seq sink with _Microsoft.Extensions.Configuration_, for example with ASP.NET Core or .NET Core, use the [Serilog.Settings.Configuration](https://github.com/serilog/serilog-settings-configuration) package. First install that package if you have not already done so:
+
+```powershell
+Install-Package Serilog.Settings.Configuration
+```
+
+Instead of configuring the Seq sink directly in code, call `ReadFrom.Configuration()`:
+
+```csharp
+var configuration = new ConfigurationBuilder()
+    .AddJsonFile("appsettings.json")
+    .Build();
+
+var logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(configuration)
+    .CreateLogger();
+```
+
+In your `appsettings.json` file, under the `Serilog` node, :
+
+```json
+{
+  "Serilog": {
+    "WriteTo": [
+      { "Name": "Seq", "Args": { "serverUrl": "http://localhost:5341" } }
+    ]
+  }
+}
+```
+
+See the XML `<appSettings>` example above for a discussion of available `Args` options.
+
+
 ### Dynamic log level control
 
 The Seq sink can dynamically adjust the logging level up or down based on the level associated with an API key in Seq. To use this feature, create a `LoggingLevelSwitch` to control the `MinimumLevel`, and pass this in the `controlLevelSwitch` parameter of `WriteTo.Seq()`:
@@ -79,7 +114,45 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 ```
 
-For further information see the [Seq documentation](http://docs.getseq.net/docs/using-serilog#dynamic-level-control).
+The equivalent configuration in XML (Serilog 2.6+) is:
+
+```xml
+<configuration>
+  <appSettings>
+    <!-- declare the switch -->
+    <add key="serilog:level-switch:$controlSwitch" value="Information" />
+    <!-- use it to control the root logger -->
+    <add key="serilog:minimum-level:controlled-by" value="$controlSwitch" />
+    <add key="serilog:using:Seq" value="Serilog.Sinks.Seq" />
+    <add key="serilog:write-to:Seq.serverUrl" value="http://localhost:5341" />
+    <add key="serilog:write-to:Seq.apiKey" value="yeEZyL3SMcxEKUijBjN" />
+    <!-- give the sink access to the switch -->
+    <add key="serilog:write-to:Seq.controlLevelSwitch" value="$controlSwitch" />
+```
+
+The equivalent configuration in JSON is:
+
+```json
+{
+    "Serilog":
+    {
+        "LevelSwitches": { "$controlSwitch": "Information" },
+        "MinimumLevel": { "ControlledBy": "$controlSwitch" },
+        "WriteTo":
+        [{
+            "Name": "Seq",
+            "Args":
+            {
+                "serverUrl": "http://localhost:5341",
+                "apiKey": "yeEZyL3SMcxEKUijBjN",
+                "controlLevelSwitch": "$controlSwitch"
+            }
+        }]
+    }
+}
+```
+
+For further information see the [Seq documentation](https://docs.datalust.co/docs/using-serilog#dynamic-level-control).
 
 ### Compact event format
 
@@ -125,5 +198,5 @@ Serilog.Debugging.SelfLog.Enable(message => {
  * Turn on the Serilog `SelfLog` as described above to check for connectivity problems and other issues on the client side.
  * Make sure your application calls `Log.CloseAndFlush()`, or disposes the root `Logger`, before it exits - otherwise, buffered events may be lost.
  * If your app is a Windows console application, it is also important to close the console window by exiting the app; Windows console apps are terminated "hard" if the close button in the title bar is used, so events buffered for sending to Seq may be lost if you use it.
- * [Raise an issue](https://github.com/serilog/serilog-sinks-seq/issues), ask for help on the [Seq support forum](http://docs.getseq.net/discuss) or email **support@getseq.net**.
+ * [Raise an issue](https://github.com/serilog/serilog-sinks-seq/issues), ask for help on the [Seq support forum](https://docs.datalust.co/discuss) or email **support@datalust.co**.
  
